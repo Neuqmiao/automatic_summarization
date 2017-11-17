@@ -173,7 +173,9 @@ def create_model(session, forward_only):
     model_checkpoint_path = ckpt.model_checkpoint_path
     print("Reading model parameters from %s" % model_checkpoint_path)
     saver = tf.train.Saver()
-    saver.restore(session, tf.train.latest_checkpoint(FLAGS.train_dir))
+    # saver.restore(session, tf.train.latest_checkpoint(FLAGS.train_dir))
+    saver.restore(session, FLAGS.train_dir+"\headline_large.ckpt-161161")
+
   else:
     print("Created model with fresh parameters.")
     session.run(tf.global_variables_initializer())
