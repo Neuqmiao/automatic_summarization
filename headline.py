@@ -189,8 +189,10 @@ def train():
   # config = tf.ConfigProto(device_count={"CPU": 4}, # limit to 4 CPU usage
   #                  inter_op_parallelism_threads=1,
   #                  intra_op_parallelism_threads=2) # n threads parallel for ops
-  
-  with tf.Session() as sess:
+
+  config = tf.ConfigProto()
+  config.gpu_options.allow_growth = True
+  with tf.Session(config=config) as sess:
     # Create model.
     print("Creating %d layers of %d units." % (FLAGS.num_layers, FLAGS.size))
     model = create_model(sess, False)
