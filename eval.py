@@ -46,14 +46,14 @@ def eval_bleu(y_candidate, y_reference, n = 2):
     return
   m = len(y_reference)
   bleu_score = 0.0
-  ngram_cand = generate_ngrams(y_candidate, n)
+  ngram_cand = list(generate_ngrams(y_candidate, n))
   total_cand_count = len(ngram_cand)
   ngram_ref_list = [] # list of ngrams for each reference sentence
   for i in range(m): 
     ngram_ref_list.append(generate_ngrams(y_reference[i], n))
   
   total_clip_count = 0
-  for tuple in set(ngram_cand):
+  for tuple in list(ngram_cand):
     # for each unique n-gram tuple in ngram_cand, calculate the clipped count
     cand_count = count_element(ngram_cand, tuple)
     max_ref_count = 0 # max_ref_count for this tuple in the references sentences
@@ -97,7 +97,7 @@ def generate_ngrams(input_list, n):
   '''
   zip(x, x[1:,],x[2,],...x[n,]), end with shorted list
   '''
-  return zip(*[input_list[i:] for i in range(n)])
+  return list(zip(*[input_list[i:] for i in range(n)]))
 
 def count_match(listA, listB):
   match_list = [tuple for tuple in listA if tuple in listB]
