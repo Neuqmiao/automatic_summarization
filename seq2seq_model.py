@@ -163,35 +163,50 @@ class Seq2SeqModel(object):
     
     # Training outputs and losses.
     if forward_only:
-        self.outputs, self.losses = tf.contrib.legacy_seq2seq.model_with_buckets(
-              self.encoder_inputs, self.decoder_inputs, targets,
-              self.target_weights, buckets, lambda x, y: seq2seq_f(x, y, True),
-              softmax_loss_function=softmax_loss_function)
+      self.outputs, self.losses = tf.contrib.legacy_seq2seq.model_with_buckets(
+          self.encoder_inputs, self.decoder_inputs, targets,
+          self.target_weights, buckets, lambda x, y: seq2seq_f(x, y, True),
+          softmax_loss_function=softmax_loss_function)
       # If we use output projection, we need to project outputs for decoding.
-        if output_projection is not None:
-            for b in xrange(len(buckets)):
-              self.outputs[b] = [
-                  tf.matmul(output, output_projection[0]) + output_projection[1]
-                  for output in self.outputs[b]
-              ]
+      if output_projection is not None:
+        for b in xrange(len(buckets)):
+          self.outputs[b] = [
+              tf.matmul(output, output_projection[0]) + output_projection[1]
+              for output in self.outputs[b]
+          ]
     else:
-        self.outputs, self.losses = tf.contrib.legacy_seq2seq.model_with_buckets(
-              self.encoder_inputs, self.decoder_inputs, targets,
-              self.target_weights, buckets, lambda x, y: seq2seq_f(x, y, False),
-              softmax_loss_function=softmax_loss_function)
+      self.outputs, self.losses = tf.contrib.legacy_seq2seq.model_with_buckets(
+          self.encoder_inputs, self.decoder_inputs, targets,
+          self.target_weights, buckets, lambda x, y: seq2seq_f(x, y, False),
+          softmax_loss_function=softmax_loss_function)
+
     # Gradients and SGD update operation for training the model.
     params = tf.trainable_variables()
     if not forward_only:
-      self.gradient_norms = []
-      self.updates = []
-      opt = tf.train.GradientDescentOptimizer(self.learning_rate)
-      for b in xrange(len(buckets)):
-        gradients = tf.gradients(self.losses[b], params)
-        clipped_gradients, norm = tf.clip_by_global_norm(gradients,
-                                                         max_gradient_norm)
-        self.gradient_norms.append(norm)
-        self.updates.append(opt.apply_gradients(
-            zip(clipped_gradients, params), global_step=self.global_step))
+        self.gradient_norms = []
+        self.updates = []
+        opt = tf.train.GradientDescentOptimizer(self.learning_rate)
+        for b in xrange(len(buckets)):
+            gradients = tf.gradients(self.losses[b], params)
+
+            # loss_summary = tf.summary.scalar("loss", self.losses[b])
+            # self.summary_op = tf.summary.merge_all()
+            # Keep track of gradient values and sparsity (optional)
+            # grad_summaries = []
+            # for g in gradients:
+            #     if g is not None:
+            #         grad_hist_summary = tf.summary.histogram("gradients", g)
+            #         grad_summaries.append(grad_hist_summary)
+            # grad_summaries_merged = tf.summary.merge(grad_summaries)
+            clipped_gradients, norm = tf.clip_by_global_norm(gradients, max_gradient_norm)
+            self.gradient_norms.append(norm)
+            self.updates.append(opt.apply_gradients(
+                zip(clipped_gradients, params), global_step=self.global_step))
+            # timestamp = str(int(time.time()))
+            # Train Summaries
+            # self.train_summary_op = tf.summary.merge([loss_summary, grad_summaries])
+            # train_summary_dir = './log/log_look_' + timestamp + '/'
+            # self.train_summary_writer = tf.summary.FileWriter(train_summary_dir, session.graph)
   
     self.saver = tf.train.Saver(tf.global_variables())  # tf.all_variables() depreciated 
   
@@ -248,8 +263,22 @@ class Seq2SeqModel(object):
       output_feed = [self.losses[bucket_id]]  # Loss for this batch.
       for l in xrange(decoder_size):  # Output logits.
         output_feed.append(self.outputs[bucket_id][l])
-    
+    # global_step = tf.Variable(0, name='global_step', trainable=False)
+    # print(self.global_step.dtype)
+    # print(self.train_summary_op)
+    # print(output_feed)
+    # print(input_feed)
+    # step, summaries, outputs = session.run(self.global_step, self.train_summary_op, output_feed, input_feed)
     outputs = session.run(output_feed, input_feed)
+    # outputs_summary = tf.summary.scalar("loss", outputs[2])
+    # timestamp = time.time()
+    # summary_op = tf.summary.merge_all()
+    # train_summary_dir = './log/log_look_' + timestamp + '/'
+    # train_summary_writer = tf.summary.FileWriter(train_summary_dir, session.graph)
+    # step, summaries = session.run(self.global_step, summary_op)
+    # train_summary_writer.add_summary(step, summaries)
+
+    # self.train_summary_writer.add_summary(step, summaries)
     if not forward_only:
       return outputs[1], outputs[2], None  # Gradient norm, loss, no outputs.
     else:

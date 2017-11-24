@@ -14,7 +14,6 @@ import os
 import random
 import sys
 import time
-import data_utils
 
 import numpy as np
 from six.moves import xrange
@@ -23,8 +22,8 @@ import tensorflow as tf
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # parent folder
 sys.path.append(parent_dir)
 
-# from ..textsum import data_utils # absolute import
-# from ..textsum import seq2seq_model # absolute import
+#from textsum import data_utils # absolute import
+#from textsum import seq2seq_model # absolute import
 
 import data_utils
 import seq2seq_model
@@ -53,31 +52,38 @@ class LargeConfig(object):
     num_epoch = 200
     num_per_epoch = 300000
 
-class MediumConfig(object):
-    # learning_rate = 0.5
-    learning_rate = 0.005
-    init_scale = 0.04
-    learning_rate_decay_factor = 0.99
-    max_gradient_norm = 5.0
-    num_samples = 48 # Sampled Softmax
-    batch_size = 32
-    size = 64 # Number of Node of each layer
-    num_layers = 2
-    #vocab_size = 50
-    # 现在的单词量
-    vocab_size = 609788
-    num_epoch = 200
-    num_per_epoch = 32000
 # class MediumConfig(object):
-#     learning_rate = 0.5
+#     # learning_rate = 0.5
+#     learning_rate = 0.005
 #     init_scale = 0.04
 #     learning_rate_decay_factor = 0.99
 #     max_gradient_norm = 5.0
-#     num_samples = 2048 # Sampled Softmax
-#     batch_size = 64
+#     num_samples = 48 # Sampled Softmax
+#     batch_size = 32
 #     size = 64 # Number of Node of each layer
 #     num_layers = 2
-#     vocab_size = 10000
+#     #vocab_size = 50
+#     # 现在的单词量
+#     vocab_size = 609788
+#     num_epoch = 200
+#     num_per_epoch = 32000
+
+class MediumConfig(object):
+    # learning_rate = 0.5
+    learning_rate = 0.05
+    init_scale = 0.04
+    learning_rate_decay_factor = 0.99
+    max_gradient_norm = 5.0
+    num_samples = 2048 # Sampled Softmax
+    batch_size = 64
+    size = 64 # Number of Node of each layer
+    num_layers = 2
+    # vocab_size = 10000
+    vocab_size = 609788
+    num_epoch = 8
+    num_per_epoch = 360000
+    # num_per_epoch = 300000
+
 # config = LargeConfig() # new Large Config, set to tf.app.flags
 config = MediumConfig()
 
@@ -97,7 +103,7 @@ tf.app.flags.DEFINE_integer("vocab_size", config.vocab_size, "vocabulary size.")
 tf.app.flags.DEFINE_string("data_dir", data_path, "Data directory")
 tf.app.flags.DEFINE_string("train_dir", train_dir, "Training directory.")
 tf.app.flags.DEFINE_integer("max_train_data_size", 0, "Limit on the size of training data (0: no limit).")
-tf.app.flags.DEFINE_integer("steps_per_checkpoint", 40, "How many training steps to do per checkpoint.")
+tf.app.flags.DEFINE_integer("steps_per_checkpoint", 1000, "How many training steps to do per checkpoint.")
 tf.app.flags.DEFINE_boolean("decode", False, "Set to True for interactive decoding.") # true for prediction
 tf.app.flags.DEFINE_boolean("use_fp16", False, "Train using fp16 instead of fp32.")
 tf.app.flags.DEFINE_string("gpu",'7',"the gpu number")
@@ -166,16 +172,15 @@ def create_model(session, forward_only):
         use_lstm = True, # LSTM instend of GRU
         num_samples = FLAGS.num_samples,
         forward_only=forward_only)
-  
+
   ckpt = tf.train.get_checkpoint_state(FLAGS.train_dir)
-  print("the ckpt is {}".format(ckpt))
+  # print("the ckpt is {}".format(ckpt))
   if ckpt:
     model_checkpoint_path = ckpt.model_checkpoint_path
     print("Reading model parameters from %s" % model_checkpoint_path)
     saver = tf.train.Saver()
-    # saver.restore(session, tf.train.latest_checkpoint(FLAGS.train_dir))
-    saver.restore(session, FLAGS.train_dir+"\headline_large.ckpt-161161")
-
+    saver.restore(session, tf.train.latest_checkpoint(FLAGS.train_dir))
+    # saver.restore(session, FLAGS.train_dir+"/headline_large.ckpt-161161")
   else:
     print("Created model with fresh parameters.")
     session.run(tf.global_variables_initializer())
@@ -202,12 +207,11 @@ def train():
     # Read data into buckets and compute their sizes.
     print ("Reading development and training data (limit: %d)."
            % FLAGS.max_train_data_size)
-    # 下面是将数据进行分桶
-    # dev_set = read_data(src_dev, dest_dev)
+    dev_set = read_data(src_dev, dest_dev)
     train_set = read_data(src_train, dest_train, FLAGS.max_train_data_size)
     train_bucket_sizes = [len(train_set[b]) for b in xrange(len(buckets))]
     train_total_size = float(sum(train_bucket_sizes))
-    # print("The all data in buckets is %d." %(len(train_bucket_sizes)))
+
     # A bucket scale is a list of increasing numbers from 0 to 1 that we'll use
     # to select a bucket. Length of [scale[i], scale[i+1]] is proportional to
     # the size if i-th training bucket, as used later.
@@ -216,14 +220,17 @@ def train():
 
     # This is the training loop.
     # 显示时间用
-    metrics = '  '.join(['\r{:.1f}%', '{}/{}', 'loss={:.3f}', '{}/{}'])
+    metrics = '  '.join(['\r{:.1f}%', '{}/{}', 'loss={:.3f}', 'gradients={:.3f}', '{}/{}'])
     bars_max = 20
 
     for current_step in range(FLAGS.num_epoch):
+       print("\n")
        print('Epoch {}:'.format(current_step))
        epoch_trained = 0
        batch_loss = []
+       batch_gradients = []
        time_start = time.time()
+       # index_sum = 0
        while True:
           # Choose a bucket according to data distribution. We pick a random number
           # in [0, 1] and use the corresponding interval in trainbuckets_scale.
@@ -235,10 +242,11 @@ def train():
           encoder_inputs, decoder_inputs, target_weights = model.get_batch(
               train_set, bucket_id)
 
-          _, step_loss, _ = model.step(sess, encoder_inputs, decoder_inputs,
+          step_gradients, step_loss, _ = model.step(sess, encoder_inputs, decoder_inputs,
                                        target_weights, bucket_id, False)
           epoch_trained += FLAGS.batch_size
           batch_loss.append(step_loss)
+          batch_gradients.append(step_gradients)
           time_now = time.time()
           time_spend = time_now - time_start
           time_estimate = time_spend / (epoch_trained / FLAGS.num_per_epoch)
@@ -249,14 +257,21 @@ def train():
               epoch_trained, FLAGS.num_per_epoch,
               # 对batch loss 取平均值
               np.mean(batch_loss),
+              np.mean(batch_gradients),
               data_utils.time(time_spend), data_utils.time(time_estimate)
           ))
           print("\n")
           sys.stdout.flush()
+          # index_sum += 1
+          # if index_sum > 4:
+          #     sys.exit()
+
           if FLAGS.num_per_epoch < epoch_trained:
               break
+
       # Once in a while, we save checkpoint, print statistics, and run evals.
-       if current_step  % FLAGS.steps_per_checkpoint == 0:
+       if current_step % FLAGS.steps_per_checkpoint == 0:
+
         # Save checkpoint and zero timer and loss.
         checkpoint_path = os.path.join(FLAGS.train_dir, "headline_large.ckpt")
         model.saver.save(sess, checkpoint_path, global_step=model.global_step)
